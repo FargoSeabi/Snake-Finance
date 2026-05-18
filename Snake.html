@@ -1,1 +1,1036 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>SNAKE FINANCE</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@700;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #050a14;
+    --panel: #0a1628;
+    --border: #0ef;
+    --border-dim: #0ef4;
+    --snake-head: #00ffcc;
+    --snake-body: #00cc99;
+    --snake-tail: #007a5e;
+    --food: #ffdd00;
+    --food-glow: #ff9900;
+    --text: #cef;
+    --accent: #0ef;
+    --danger: #ff3060;
+    --grid-line: rgba(0,220,255,0.06);
+    --correct: #00ffaa;
+    --wrong: #ff3060;
+  }
 
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  body {
+    background: var(--bg);
+    font-family: 'Share Tech Mono', monospace;
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+
+  /* Scanline overlay */
+  body::before {
+    content:'';
+    position:fixed;
+    inset:0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.15) 2px,
+      rgba(0,0,0,0.15) 4px
+    );
+    pointer-events:none;
+    z-index:100;
+  }
+
+  /* Ambient glow top-left / bottom-right */
+  body::after {
+    content:'';
+    position:fixed;
+    inset:0;
+    background:
+      radial-gradient(ellipse 60% 40% at 0% 0%, rgba(0,200,255,0.07) 0%, transparent 60%),
+      radial-gradient(ellipse 50% 40% at 100% 100%, rgba(0,255,160,0.06) 0%, transparent 60%);
+    pointer-events:none;
+    z-index:0;
+  }
+
+  #wrapper {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    gap: 24px;
+    align-items: flex-start;
+  }
+
+  /* ── TITLE ── */
+  #title {
+    text-align: center;
+    margin-bottom: 16px;
+    letter-spacing: 0.18em;
+  }
+  #title h1 {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 2rem;
+    font-weight: 900;
+    color: var(--accent);
+    text-shadow: 0 0 20px var(--accent), 0 0 60px rgba(0,200,255,0.4);
+    line-height: 1;
+  }
+  #title p {
+    font-size: 0.7rem;
+    color: #7ab;
+    letter-spacing: 0.3em;
+    margin-top: 4px;
+    text-transform: uppercase;
+  }
+
+  /* ── CANVAS PANEL ── */
+  #canvasPanel {
+    display: flex;
+    flex-direction: column;
+  }
+
+  #gameCanvas {
+    display: block;
+    border: 1px solid var(--border-dim);
+    box-shadow:
+      0 0 0 1px rgba(0,220,255,0.08),
+      0 0 40px rgba(0,180,255,0.12),
+      inset 0 0 60px rgba(0,0,0,0.5);
+    image-rendering: pixelated;
+  }
+
+  /* ── SIDEBAR ── */
+  #sidebar {
+    width: 180px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border-dim);
+    padding: 14px;
+    position: relative;
+  }
+  .panel::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    opacity: 0.5;
+  }
+
+  .panel-label {
+    font-size: 0.55rem;
+    letter-spacing: 0.25em;
+    color: #7ab;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+
+  .stat-val {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--accent);
+    text-shadow: 0 0 12px var(--accent);
+    line-height: 1;
+  }
+
+  /* Level bar */
+  .xp-track {
+    height: 4px;
+    background: rgba(0,200,255,0.12);
+    margin-top: 8px;
+    position: relative;
+    overflow: hidden;
+  }
+  .xp-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #0ef, #0f8);
+    transition: width 0.5s ease;
+    box-shadow: 0 0 8px #0ef;
+  }
+
+  .acc-bar-wrap {
+    margin-top: 8px;
+  }
+  .acc-track {
+    height: 4px;
+    background: rgba(0,200,255,0.12);
+    position: relative;
+  }
+  .acc-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--wrong), var(--correct));
+    transition: width 0.5s ease;
+  }
+
+  /* Controls hint */
+  .controls {
+    font-size: 0.6rem;
+    color: #5a8a9a;
+    line-height: 1.8;
+  }
+  .controls span { color: var(--accent); }
+
+  /* ── Q-CARD ── */
+  #qcardBackdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,5,15,0.75);
+    backdrop-filter: blur(3px);
+    z-index: 200;
+    align-items: center;
+    justify-content: center;
+  }
+  #qcardBackdrop.active { display: flex; }
+
+  /* Card wrapper handles the fly-in */
+  #qcard {
+    position: relative;
+    width: 440px;
+    max-width: 95vw;
+    transform: translateY(60px) scale(0.88) rotateX(12deg);
+    opacity: 0;
+    transition: transform 0.42s cubic-bezier(0.22,1,0.36,1), opacity 0.32s ease;
+    perspective: 800px;
+  }
+  #qcardBackdrop.active #qcard {
+    transform: translateY(0) scale(1) rotateX(0deg);
+    opacity: 1;
+  }
+  #qcardBackdrop.dismiss #qcard {
+    transform: translateY(-50px) scale(0.9) rotateX(-10deg);
+    opacity: 0;
+    transition: transform 0.3s ease-in, opacity 0.25s ease-in;
+  }
+
+  /* The physical card */
+  #qcardInner {
+    background: linear-gradient(145deg, #0d1f3a 0%, #081428 60%, #050e1f 100%);
+    border: 1px solid rgba(0,220,255,0.25);
+    border-radius: 16px;
+    padding: 0;
+    overflow: hidden;
+    box-shadow:
+      0 0 0 1px rgba(0,220,255,0.08),
+      0 24px 60px rgba(0,0,0,0.7),
+      0 0 80px rgba(0,180,255,0.1),
+      inset 0 1px 0 rgba(255,255,255,0.06);
+    position: relative;
+  }
+
+  /* Card top stripe — the "header band" */
+  #qcardHeader {
+    background: linear-gradient(90deg, #071830, #0a2540, #071830);
+    border-bottom: 1px solid rgba(0,220,255,0.15);
+    padding: 14px 22px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: relative;
+  }
+  #qcardHeader::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 10%; right: 10%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(0,220,255,0.5), transparent);
+  }
+
+  .qcard-chip {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 0.58rem;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--food);
+  }
+  .qcard-chip-icon {
+    width: 20px; height: 14px;
+    border: 1px solid var(--food);
+    border-radius: 3px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 2px;
+    padding: 2px;
+    opacity: 0.8;
+  }
+  .qcard-chip-icon div { background: var(--food); border-radius: 1px; }
+
+  .qcard-num {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.65rem;
+    color: rgba(0,220,255,0.4);
+    letter-spacing: 0.1em;
+  }
+
+  /* Corner decorations */
+  #qcardInner::before, #qcardInner::after {
+    content: '';
+    position: absolute;
+    width: 40px; height: 40px;
+    border-color: rgba(0,220,255,0.18);
+    border-style: solid;
+    pointer-events: none;
+    z-index: 1;
+  }
+  #qcardInner::before {
+    top: 0; left: 0;
+    border-width: 2px 0 0 2px;
+    border-radius: 16px 0 0 0;
+  }
+  #qcardInner::after {
+    bottom: 0; right: 0;
+    border-width: 0 2px 2px 0;
+    border-radius: 0 0 16px 0;
+  }
+
+  /* Question area */
+  #qcardBody {
+    padding: 26px 26px 10px;
+  }
+
+  #qcardQ {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #fff;
+    line-height: 1.45;
+    margin-bottom: 22px;
+    text-shadow: 0 0 20px rgba(0,200,255,0.2);
+  }
+
+  /* Options */
+  #qcardOpts {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-bottom: 24px;
+  }
+
+  .opt-btn {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    background: rgba(255,255,255,0.025);
+    border: 1px solid rgba(0,200,255,0.15);
+    border-radius: 10px;
+    color: var(--text);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.88rem;
+    cursor: pointer;
+    letter-spacing: 0.04em;
+    transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.1s;
+    overflow: hidden;
+    text-align: left;
+    position: relative;
+  }
+  .opt-btn:hover {
+    background: rgba(0,200,255,0.08);
+    border-color: rgba(0,200,255,0.45);
+    color: #fff;
+    transform: translateX(3px);
+  }
+  .opt-btn:active { transform: translateX(1px) scale(0.99); }
+
+  .opt-key-badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 42px;
+    height: 100%;
+    min-height: 46px;
+    background: rgba(0,200,255,0.07);
+    border-right: 1px solid rgba(0,200,255,0.12);
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--accent);
+    flex-shrink: 0;
+    transition: background 0.15s;
+  }
+  .opt-btn:hover .opt-key-badge {
+    background: rgba(0,200,255,0.14);
+  }
+
+  .opt-text {
+    padding: 12px 14px;
+    flex: 1;
+  }
+
+  /* Answer states */
+  .opt-btn.correct {
+    background: rgba(0,255,170,0.08) !important;
+    border-color: var(--correct) !important;
+    color: var(--correct) !important;
+    transform: none !important;
+  }
+  .opt-btn.correct .opt-key-badge {
+    background: rgba(0,255,170,0.15);
+    border-color: rgba(0,255,170,0.25);
+    color: var(--correct);
+  }
+  .opt-btn.wrong {
+    background: rgba(255,48,96,0.08) !important;
+    border-color: var(--wrong) !important;
+    color: var(--wrong) !important;
+    transform: none !important;
+  }
+  .opt-btn.wrong .opt-key-badge {
+    background: rgba(255,48,96,0.15);
+    border-color: rgba(255,48,96,0.25);
+    color: var(--wrong);
+  }
+
+  /* Card footer hint */
+  #qcardFooter {
+    border-top: 1px solid rgba(0,200,255,0.08);
+    padding: 10px 26px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .qcard-hint {
+    font-size: 0.56rem;
+    letter-spacing: 0.15em;
+    color: rgba(100,160,180,0.45);
+    text-transform: uppercase;
+  }
+  /* Holographic shimmer stripe */
+  .qcard-holo {
+    width: 48px;
+    height: 8px;
+    border-radius: 4px;
+    background: linear-gradient(90deg,
+      rgba(255,0,128,0.4),
+      rgba(0,255,200,0.4),
+      rgba(100,80,255,0.4),
+      rgba(255,200,0,0.4)
+    );
+    animation: holoShift 3s linear infinite;
+    background-size: 200% 100%;
+  }
+  @keyframes holoShift {
+    0%   { background-position: 0% 0%; }
+    100% { background-position: 200% 0%; }
+  }
+
+  /* ── RESULT FLASH ── */
+  #resultFlash {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%,-50%) scale(0.6);
+    font-family: 'Orbitron', sans-serif;
+    font-size: 2.5rem;
+    font-weight: 900;
+    pointer-events: none;
+    z-index: 300;
+    opacity: 0;
+    transition: none;
+    text-align: center;
+    white-space: nowrap;
+  }
+  #resultFlash.show-correct {
+    color: var(--correct);
+    text-shadow: 0 0 30px var(--correct);
+    animation: flashAnim 0.8s ease forwards;
+  }
+  #resultFlash.show-wrong {
+    color: var(--wrong);
+    text-shadow: 0 0 30px var(--wrong);
+    animation: flashAnim 0.8s ease forwards;
+  }
+  @keyframes flashAnim {
+    0%   { opacity:1; transform:translate(-50%,-50%) scale(0.7); }
+    30%  { opacity:1; transform:translate(-50%,-50%) scale(1.1); }
+    60%  { opacity:1; transform:translate(-50%,-50%) scale(1.0); }
+    100% { opacity:0; transform:translate(-50%,-52%) scale(1.0); }
+  }
+
+  /* ── GAME OVER ── */
+  #gameOver {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,5,15,0.92);
+    z-index: 200;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 16px;
+  }
+  #gameOver.active { display: flex; }
+  #gameOver h2 {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 3rem;
+    font-weight: 900;
+    color: var(--danger);
+    text-shadow: 0 0 40px var(--danger);
+    letter-spacing: 0.1em;
+  }
+  #gameOver p {
+    font-size: 0.85rem;
+    color: #7ab;
+    letter-spacing: 0.15em;
+  }
+  #restartBtn {
+    margin-top: 8px;
+    background: transparent;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    padding: 12px 32px;
+    cursor: pointer;
+    text-transform: uppercase;
+    transition: background 0.2s, color 0.2s;
+  }
+  #restartBtn:hover {
+    background: var(--accent);
+    color: #000;
+  }
+
+  #goStats {
+    font-size: 0.75rem;
+    color: #8ac;
+    line-height: 2;
+    text-align: center;
+  }
+  #goStats span { color: var(--accent); }
+
+  /* Ticker tape at bottom */
+  #ticker {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 28px;
+    background: rgba(0,10,25,0.9);
+    border-top: 1px solid rgba(0,200,255,0.1);
+    overflow: hidden;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+  }
+  #tickerInner {
+    white-space: nowrap;
+    font-size: 0.65rem;
+    letter-spacing: 0.12em;
+    color: #3a7a9a;
+    animation: tickerScroll 30s linear infinite;
+  }
+  #tickerInner span { color: var(--accent); margin: 0 6px; }
+  @keyframes tickerScroll {
+    from { transform: translateX(100vw); }
+    to   { transform: translateX(-100%); }
+  }
+</style>
+</head>
+<body>
+
+<div id="resultFlash"></div>
+
+<div id="qcardBackdrop">
+  <div id="qcard">
+    <div id="qcardInner">
+      <div id="qcardHeader">
+        <div class="qcard-chip">
+          <div class="qcard-chip-icon"><div></div><div></div><div></div><div></div></div>
+          FINANCE CHALLENGE
+        </div>
+        <div class="qcard-num" id="qcardNum">Q 01</div>
+      </div>
+      <div id="qcardBody">
+        <div id="qcardQ">Question loading...</div>
+        <div id="qcardOpts"></div>
+      </div>
+      <div id="qcardFooter">
+        <div class="qcard-hint">Press 1 · 2 · 3 to answer</div>
+        <div class="qcard-holo"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="gameOver">
+  <h2>GAME OVER</h2>
+  <div id="goStats"></div>
+  <p>PRESS RESTART TO TRY AGAIN</p>
+  <button id="restartBtn" onclick="initGame()">RESTART</button>
+</div>
+
+<div style="position:relative;z-index:1">
+  <div id="title">
+    <h1>SNAKE FINANCE</h1>
+    <p>EAT · LEARN · GROW</p>
+  </div>
+
+  <div id="wrapper">
+    <div id="canvasPanel">
+      <canvas id="gameCanvas" width="480" height="480"></canvas>
+    </div>
+
+    <div id="sidebar">
+      <div class="panel">
+        <div class="panel-label">Score</div>
+        <div class="stat-val" id="scoreVal">0</div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-label">Level</div>
+        <div class="stat-val" id="levelVal">1</div>
+        <div class="xp-track">
+          <div class="xp-fill" id="xpFill" style="width:0%"></div>
+        </div>
+        <div style="font-size:0.6rem;color:#5a8a9a;margin-top:5px">XP <span id="xpVal" style="color:#0ef">0</span></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-label">Accuracy</div>
+        <div class="stat-val" id="accVal">—</div>
+        <div class="acc-bar-wrap">
+          <div class="acc-track">
+            <div class="acc-fill" id="accFill" style="width:0%"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-label">Length</div>
+        <div class="stat-val" id="lenVal">1</div>
+      </div>
+
+      <div class="panel controls">
+        <div class="panel-label">Controls</div>
+        <span>↑↓←→</span> Move<br>
+        <span>P</span> Pause<br>
+        <span>1/2/3</span> Answer
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="ticker">
+  <div id="tickerInner">
+    SAVING IS THE FOUNDATION OF WEALTH &nbsp;▸&nbsp;
+    <span>BUDGET → SAVE → INVEST</span> &nbsp;▸&nbsp;
+    COMPOUND INTEREST WORKS IN YOUR FAVOUR &nbsp;▸&nbsp;
+    AVOID LIFESTYLE INFLATION &nbsp;▸&nbsp;
+    <span>EMERGENCY FUND</span>: 3–6 MONTHS OF EXPENSES &nbsp;▸&nbsp;
+    PAY YOURSELF FIRST &nbsp;▸&nbsp;
+    DIVERSIFY YOUR PORTFOLIO &nbsp;▸&nbsp;
+    TRACK YOUR NET WORTH MONTHLY &nbsp;▸&nbsp;
+    <span>DEBT SNOWBALL</span> OR AVALANCHE — PICK ONE AND STICK TO IT &nbsp;▸&nbsp;
+  </div>
+</div>
+
+<script>
+const COLS = 20, ROWS = 20;
+const CELL = 24; // 24*20 = 480
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+// ── QUESTIONS ──
+const questions = [
+  {q:"What is saving?", opts:["Spending all income","Keeping money for future","Borrowing from others"], ans:1},
+  {q:"What is a loan?", opts:["Free government money","Money borrowed + repaid with interest","A type of savings account"], ans:1},
+  {q:"Best daily financial habit?", opts:["Tracking your spending","Ignoring your bills","Buying on impulse"], ans:0},
+  {q:"What is a budget?", opts:["A type of bank account","A plan for income and expenses","A credit card limit"], ans:1},
+  {q:"Compound interest benefits…", opts:["Debtors only","Savers and investors","Neither"], ans:1},
+  {q:"What is an emergency fund?", opts:["Holiday savings","3-6 months of living expenses","A risky investment"], ans:1},
+  {q:"Which reduces debt fastest?", opts:["Minimum payments only","Paying extra on principal","Opening new credit lines"], ans:1},
+  {q:"Diversification in investing means…", opts:["Putting all money in one stock","Spreading risk across many assets","Only buying gold"], ans:1},
+  {q:"Net worth equals…", opts:["Income minus taxes","Total assets minus total liabilities","Monthly salary"], ans:1},
+  {q:"Which is a fixed expense?", opts:["Restaurant meals","Rent or mortgage payment","Weekend shopping"], ans:1},
+];
+
+// ── GAME STATE ──
+let snake, dir, nextDir, food, score, xp, level, correct, total, running, paused, awaitingAnswer, gameLoopId;
+
+// ── SHRINK ANIMATION STATE ──
+let shrinkSegs = [];    // [{x,y,alpha,scale}] — ghost segments fading out
+let particles = [];     // [{x,y,vx,vy,life,maxLife}]
+
+function initGame(){
+  document.getElementById('gameOver').classList.remove('active');
+  snake = [{x:10,y:10},{x:9,y:10},{x:8,y:10}];
+  dir = {x:1,y:0};
+  nextDir = {x:1,y:0};
+  food = spawnFood();
+  score = 0; xp = 0; level = 1;
+  correct = 0; total = 0;
+  shrinkSegs = []; particles = [];
+  running = true; paused = false; awaitingAnswer = false;
+  if(gameLoopId) clearInterval(gameLoopId);
+  gameLoopId = setInterval(tick, 160);
+  updateSidebar();
+  render();
+}
+
+function spawnFood(){
+  let pos;
+  do { pos = {x: Math.floor(Math.random()*COLS), y: Math.floor(Math.random()*ROWS)}; }
+  while(snake.some(s=>s.x===pos.x && s.y===pos.y));
+  return pos;
+}
+
+// ── TICK ──
+function tick(){
+  if(!running || paused || awaitingAnswer) return;
+  dir = nextDir;
+  let head = {x: snake[0].x + dir.x, y: snake[0].y + dir.y};
+
+  // Wall wrap (QoL)
+  head.x = (head.x + COLS) % COLS;
+  head.y = (head.y + ROWS) % ROWS;
+
+  // Self collision
+  if(snake.some(s=>s.x===head.x && s.y===head.y)){
+    endGame(); return;
+  }
+
+  snake.unshift(head);
+
+  if(head.x===food.x && head.y===food.y){
+    score += 100;
+    food = spawnFood();
+    showQuestion();
+  } else {
+    snake.pop();
+  }
+  updateSidebar();
+  render();
+}
+
+// ── QUESTION ──
+let currentQ = null;
+let qCount = 0;
+
+function showQuestion(){
+  awaitingAnswer = true;
+  qCount++;
+  currentQ = questions[Math.floor(Math.random()*questions.length)];
+  document.getElementById('qcardQ').textContent = currentQ.q;
+  document.getElementById('qcardNum').textContent = 'Q ' + String(qCount).padStart(2,'0');
+  const wrap = document.getElementById('qcardOpts');
+  wrap.innerHTML = '';
+  currentQ.opts.forEach((opt, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'opt-btn';
+    btn.innerHTML = `<span class="opt-key-badge">${i+1}</span><span class="opt-text">${opt}</span>`;
+    btn.onclick = () => answerQuestion(i, btn);
+    wrap.appendChild(btn);
+  });
+  const backdrop = document.getElementById('qcardBackdrop');
+  backdrop.classList.remove('dismiss');
+  backdrop.classList.add('active');
+}
+
+function answerQuestion(idx, btnEl){
+  total++;
+  const btns = document.querySelectorAll('.opt-btn');
+  btns.forEach(b => b.style.pointerEvents = 'none');
+
+  if(idx === currentQ.ans){
+    correct++;
+    xp += 120;
+    if(xp >= level * 360){ level++; }
+    snake.push({...snake[snake.length-1]});
+    snake.push({...snake[snake.length-1]});
+    btnEl.classList.add('correct');
+    flash('+ GROWTH', true);
+  } else {
+    btns[currentQ.ans].classList.add('correct');
+    btnEl.classList.add('wrong');
+    animateShrink(3); // remove up to 3 segments with animation
+    flash('– SHRINK', false);
+  }
+
+  setTimeout(()=>{
+    const backdrop = document.getElementById('qcardBackdrop');
+    backdrop.classList.add('dismiss');
+    setTimeout(()=>{
+      backdrop.classList.remove('active','dismiss');
+      awaitingAnswer = false;
+      updateSidebar();
+      render();
+    }, 320);
+  }, 900);
+}
+
+function flash(msg, good){
+  const el = document.getElementById('resultFlash');
+  el.textContent = msg;
+  el.className = '';
+  void el.offsetWidth;
+  el.className = good ? 'show-correct' : 'show-wrong';
+}
+
+// ── SHRINK ANIMATION ──
+function animateShrink(count){
+  const toRemove = Math.min(count, snake.length - 1);
+  if(toRemove <= 0) return;
+
+  // Stagger each segment removal by 120ms
+  for(let i = 0; i < toRemove; i++){
+    setTimeout(()=>{
+      if(snake.length <= 1) return;
+      const seg = snake.pop();
+      // Ghost segment that fades + shrinks
+      shrinkSegs.push({ x: seg.x, y: seg.y, alpha: 1, scale: 1 });
+      // Burst particles at that cell
+      const cx = seg.x * CELL + CELL/2;
+      const cy = seg.y * CELL + CELL/2;
+      for(let p = 0; p < 10; p++){
+        const angle = (Math.PI * 2 * p) / 10 + Math.random() * 0.5;
+        const speed = 1.2 + Math.random() * 2.5;
+        particles.push({
+          x: cx, y: cy,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          life: 1, maxLife: 1,
+          size: 2 + Math.random() * 3
+        });
+      }
+      updateSidebar();
+    }, i * 140);
+  }
+}
+
+// ── SIDEBAR ──
+function updateSidebar(){
+  document.getElementById('scoreVal').textContent = score;
+  document.getElementById('levelVal').textContent = level;
+  document.getElementById('xpVal').textContent = xp;
+  document.getElementById('lenVal').textContent = snake.length;
+  const xpPct = Math.min(100, Math.round((xp % (level*360)) / (level*360) * 100));
+  document.getElementById('xpFill').style.width = xpPct + '%';
+  const acc = total ? Math.round(correct/total*100) : 0;
+  document.getElementById('accVal').textContent = total ? acc + '%' : '—';
+  document.getElementById('accFill').style.width = (total ? acc : 0) + '%';
+}
+
+// ── RENDER ──
+function render(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  // Background
+  ctx.fillStyle = '#050a14';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(0,200,255,0.05)';
+  ctx.lineWidth = 0.5;
+  for(let i=0;i<=COLS;i++){
+    ctx.beginPath(); ctx.moveTo(i*CELL,0); ctx.lineTo(i*CELL,canvas.height); ctx.stroke();
+  }
+  for(let j=0;j<=ROWS;j++){
+    ctx.beginPath(); ctx.moveTo(0,j*CELL); ctx.lineTo(canvas.width,j*CELL); ctx.stroke();
+  }
+
+  // Food — pulsing coin
+  const t = Date.now() / 600;
+  const glow = 0.6 + 0.4 * Math.sin(t);
+  const fx = food.x*CELL + CELL/2, fy = food.y*CELL + CELL/2, fr = CELL*0.38;
+  ctx.save();
+  ctx.shadowColor = '#ffdd00';
+  ctx.shadowBlur = 12 + 8*glow;
+  const grad = ctx.createRadialGradient(fx-fr*0.2, fy-fr*0.2, fr*0.1, fx, fy, fr);
+  grad.addColorStop(0, '#fff8aa');
+  grad.addColorStop(0.5, '#ffdd00');
+  grad.addColorStop(1, '#cc7700');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(fx, fy, fr * (0.9 + 0.07*Math.sin(t)), 0, Math.PI*2);
+  ctx.fill();
+  // $ sign
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#7a4400';
+  ctx.font = `bold ${Math.round(CELL*0.5)}px 'Orbitron', monospace`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('$', fx, fy+1);
+  ctx.restore();
+
+  // Snake
+  const len = snake.length;
+  snake.forEach((seg, i) => {
+    const x = seg.x * CELL + 1, y = seg.y * CELL + 1;
+    const w = CELL - 2, h = CELL - 2;
+    const ratio = 1 - i / len;
+
+    // Color interpolation head→tail
+    const r1 = 0,  g1 = 255, b1 = 204; // head
+    const r2 = 0,  g2 = 80,  b2 = 60;  // tail
+    const r = Math.round(r1 + (r2-r1)*(1-ratio));
+    const g = Math.round(g1 + (g2-g1)*(1-ratio));
+    const b = Math.round(b1 + (b2-b1)*(1-ratio));
+
+    ctx.save();
+    if(i===0){
+      ctx.shadowColor = `rgb(${r},${g},${b})`;
+      ctx.shadowBlur = 14;
+    }
+    const radius = i===0 ? 6 : 3;
+    ctx.fillStyle = `rgb(${r},${g},${b})`;
+    roundRect(ctx, x, y, w, h, radius);
+    ctx.fill();
+
+    // Head eyes
+    if(i===0){
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#000';
+      const eyeOff = 4;
+      // Position eyes based on direction
+      let ex1, ey1, ex2, ey2;
+      if(dir.x===1){ ex1=x+w-5; ey1=y+5; ex2=x+w-5; ey2=y+h-5; }
+      else if(dir.x===-1){ ex1=x+5; ey1=y+5; ex2=x+5; ey2=y+h-5; }
+      else if(dir.y===-1){ ex1=x+5; ey1=y+5; ex2=x+w-5; ey2=y+5; }
+      else { ex1=x+5; ey1=y+h-5; ex2=x+w-5; ey2=y+h-5; }
+      ctx.beginPath(); ctx.arc(ex1,ey1,2,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(ex2,ey2,2,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#0ef';
+      ctx.beginPath(); ctx.arc(ex1,ey1,1,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(ex2,ey2,1,0,Math.PI*2); ctx.fill();
+    }
+    ctx.restore();
+  });
+
+  // ── SHRINK GHOST SEGMENTS ──
+  shrinkSegs.forEach(s => {
+    const cx = s.x * CELL + CELL/2;
+    const cy = s.y * CELL + CELL/2;
+    const half = (CELL * 0.44) * s.scale;
+    ctx.save();
+    ctx.globalAlpha = s.alpha;
+    ctx.shadowColor = '#ff3060';
+    ctx.shadowBlur = 18 * s.alpha;
+    ctx.fillStyle = `rgba(255,48,96,${s.alpha})`;
+    roundRect(ctx, cx - half, cy - half, half*2, half*2, 4);
+    ctx.fill();
+    // X mark
+    ctx.globalAlpha = s.alpha * 0.9;
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    const m = half * 0.45;
+    ctx.beginPath(); ctx.moveTo(cx-m, cy-m); ctx.lineTo(cx+m, cy+m); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx+m, cy-m); ctx.lineTo(cx-m, cy+m); ctx.stroke();
+    ctx.restore();
+  });
+
+  // ── PARTICLES ──
+  particles.forEach(p => {
+    ctx.save();
+    ctx.globalAlpha = p.life;
+    ctx.fillStyle = `rgba(255,${Math.round(48 + 80*(1-p.life))},96,${p.life})`;
+    ctx.shadowColor = '#ff3060';
+    ctx.shadowBlur = 6;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+  });
+  if(paused){
+    ctx.fillStyle = 'rgba(0,5,15,0.65)';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle = '#0ef';
+    ctx.font = `bold 2rem 'Orbitron', monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('PAUSED', canvas.width/2, canvas.height/2);
+  }
+}
+
+function roundRect(ctx, x, y, w, h, r){
+  ctx.beginPath();
+  ctx.moveTo(x+r, y);
+  ctx.lineTo(x+w-r, y); ctx.arcTo(x+w,y, x+w,y+r, r);
+  ctx.lineTo(x+w, y+h-r); ctx.arcTo(x+w,y+h, x+w-r,y+h, r);
+  ctx.lineTo(x+r, y+h); ctx.arcTo(x,y+h, x,y+h-r, r);
+  ctx.lineTo(x, y+r); ctx.arcTo(x,y, x+r,y, r);
+  ctx.closePath();
+}
+
+// ── GAME OVER ──
+function endGame(){
+  running = false;
+  clearInterval(gameLoopId);
+  const acc = total ? Math.round(correct/total*100) : 0;
+  document.getElementById('goStats').innerHTML =
+    `Score: <span>${score}</span> &nbsp;|&nbsp; Level: <span>${level}</span><br>
+     Questions: <span>${correct}/${total}</span> correct &nbsp;|&nbsp; Accuracy: <span>${acc}%</span><br>
+     Length at death: <span>${snake.length}</span>`;
+  document.getElementById('gameOver').classList.add('active');
+}
+
+// ── CONTROLS ──
+document.addEventListener('keydown', e => {
+  if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) e.preventDefault();
+
+  if(e.key==='ArrowUp'    && dir.y!==1)  nextDir={x:0,y:-1};
+  if(e.key==='ArrowDown'  && dir.y!==-1) nextDir={x:0,y:1};
+  if(e.key==='ArrowLeft'  && dir.x!==1)  nextDir={x:-1,y:0};
+  if(e.key==='ArrowRight' && dir.x!==-1) nextDir={x:1,y:0};
+
+  if(e.key==='p' || e.key==='P'){
+    if(!awaitingAnswer) paused = !paused;
+    render();
+  }
+
+  // Answer by number key
+  if(awaitingAnswer && ['1','2','3'].includes(e.key)){
+    const idx = parseInt(e.key) - 1;
+    const btns = document.querySelectorAll('#qcardOpts .opt-btn');
+    if(btns[idx]) answerQuestion(idx, btns[idx]);
+  }
+});
+
+// Render loop for food pulse + shrink effects
+function animLoop(){
+  // Tick shrink ghosts
+  for(let i = shrinkSegs.length - 1; i >= 0; i--){
+    shrinkSegs[i].alpha -= 0.045;
+    shrinkSegs[i].scale -= 0.04;
+    if(shrinkSegs[i].alpha <= 0) shrinkSegs.splice(i, 1);
+  }
+  // Tick particles
+  for(let i = particles.length - 1; i >= 0; i--){
+    const p = particles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vx *= 0.9;
+    p.vy *= 0.9;
+    p.life -= 0.055;
+    if(p.life <= 0) particles.splice(i, 1);
+  }
+  if(running) render();
+  requestAnimationFrame(animLoop);
+}
+
+initGame();
+animLoop();
+</script>
+</body>
+</html>
